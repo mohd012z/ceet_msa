@@ -971,6 +971,9 @@ input[type="range"]::-moz-range-thumb{
         <button class="btn accent" id="saveGithubSettingsBtn">Save GitHub Settings</button>
         <button class="btn" id="testGithubBtn">Test GitHub</button>
       </div>
+      <div class="settings-row" style="display:block;">
+        <div id="githubStatus" class="hint">GitHub autosave is not tested yet.</div>
+      </div>
 <div class="hint" style="margin-top:14px;" data-i18n="settings.sessionHint">Like the language setting, appearance resets to default the next time you open this file — it isn't saved to disk.</div>
     </div>
     <div class="modal-foot">
@@ -1401,15 +1404,25 @@ function loadGithubSettings(){
   }
 }
 function saveGithubSettings(){
+  const existing = loadGithubSettings();
+  const typedToken = document.getElementById('ghToken').value.trim();
   const cfg = {
     repo: document.getElementById('ghRepo').value.trim() || 'mohd012z/ceet_msa',
     branch: document.getElementById('ghBranch').value.trim() || 'main',
-    token: document.getElementById('ghToken').value.trim(),
+    token: typedToken || existing.token || '',
     autoSave: document.getElementById('ghAutoSave').checked
   };
   localStorage.setItem(GITHUB_SETTINGS_KEY, JSON.stringify(cfg));
+  populateGithubSettings();
+  updateGithubStatus('GitHub settings saved in this browser.', cfg.token ? 'ok' : 'warn');
   toast('GitHub settings saved in this browser.', 'info');
   return cfg;
+}
+function updateGithubStatus(msg, level){
+  const el = document.getElementById('githubStatus');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.color = level==='ok' ? 'var(--green)' : (level==='err' ? 'var(--red)' : 'var(--amber)');
 }
 function populateGithubSettings(){
   const cfg = loadGithubSettings();
@@ -1417,6 +1430,20 @@ function populateGithubSettings(){
   if(document.getElementById('ghBranch')) document.getElementById('ghBranch').value = cfg.branch;
   if(document.getElementById('ghToken')) document.getElementById('ghToken').value = cfg.token;
   if(document.getElementById('ghAutoSave')) document.getElementById('ghAutoSave').checked = !!cfg.autoSave;
+  updateGithubStatus(cfg.token
+    ? (cfg.autoSave ? 'GitHub autosave is ON. Click Test GitHub to confirm access.' : 'GitHub token is saved. Turn on Auto save if required.')
+    : 'GitHub token is missing. Paste token, click Save GitHub Settings, then Test GitHub.',
+    cfg.token ? 'ok' : 'warn');
+}
+function openGithubSettings(message){
+  populateThemeGrid();
+  populateGithubSettings();
+  document.getElementById('settingsBackdrop').classList.add('open');
+  if(message) updateGithubStatus(message, 'warn');
+  setTimeout(()=>{
+    const token = document.getElementById('ghToken');
+    if(token && !token.value) token.focus();
+  }, 80);
 }
 function dataUrlToBase64(dataUrl){
   return String(dataUrl||'').split(',')[1] || '';
@@ -1479,6 +1506,7 @@ async function putGithubFile(path, contentBase64, message, cfg){
 async function saveToGithub(reason='Manual save'){
   const cfg = loadGithubSettings();
   if(!cfg.token){
+    openGithubSettings('GitHub token missing. Paste token, click Save GitHub Settings, then Test GitHub.');
     toast('GitHub token missing. Open Settings and save a token first.', 'err');
     return false;
   }
@@ -1494,7 +1522,12 @@ async function saveToGithub(reason='Manual save'){
 }
 function autoSaveToGithub(reason){
   const cfg = loadGithubSettings();
-  if(!cfg.autoSave || !cfg.token) return;
+  if(!cfg.autoSave) return;
+  if(!cfg.token){
+    openGithubSettings('Autosave is ON, but GitHub token is missing. Paste token and test GitHub.');
+    toast('Autosave needs a GitHub token first.', 'err');
+    return;
+  }
   saveToGithub(reason).catch(err=>{
     console.error(err);
     toast('GitHub auto save failed: '+err.message, 'err');
@@ -1508,9 +1541,11 @@ async function testGithubConnection(){
   }
   try{
     await githubRequest('data/CEET_Spares_Database.json?ref='+encodeURIComponent(cfg.branch), 'GET', null, cfg);
+    updateGithubStatus('GitHub connection OK. Autosave is ready.', 'ok');
     toast('GitHub connection OK. Database file is reachable.', 'info');
   } catch(err){
     console.error(err);
+    updateGithubStatus('GitHub test failed. Check token permission: Contents Read and Write.', 'err');
     toast('GitHub test failed: '+err.message, 'err');
   }
 }
@@ -2507,9 +2542,7 @@ function resetSettings(){
 }
 
 document.getElementById('settingsBtn').addEventListener('click', ()=>{
-  populateThemeGrid();
-  populateGithubSettings();
-  document.getElementById('settingsBackdrop').classList.add('open');
+  openGithubSettings();
 });
 document.getElementById('saveGithubSettingsBtn').addEventListener('click', saveGithubSettings);
 document.getElementById('testGithubBtn').addEventListener('click', testGithubConnection);
